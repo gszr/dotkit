@@ -96,6 +96,85 @@ func TestDoCopy(t *testing.T) {
 	assert.Equal(t, fromContents, toContents)
 }
 
+func TestExpectedContent(t *testing.T) {
+	// without templating
+	m := FileMapping{
+		From: "examples/zshrc",
+	}
+	content, err := m.expectedContent()
+	assert.Nil(t, err)
+	raw, err := os.ReadFile("examples/zshrc")
+	assert.Nil(t, err)
+	assert.Equal(t, raw, content)
+
+	// with templating
+	m = FileMapping{
+		From: "fixtures/gpg-agent.conf.input",
+		With: map[string]string{
+			"PinentryPath": "/foo/bar",
+		},
+	}
+	content, err = m.expectedContent()
+	assert.Nil(t, err)
+	expected, err := os.ReadFile("fixtures/gpg-agent.conf.output")
+	assert.Nil(t, err)
+	assert.Equal(t, expected, content)
+}
+
+func TestDiff(t *testing.T) {
+	defer func() {
+		_ = os.RemoveAll("out")
+	}()
+
+	cwd, err := os.Getwd()
+	assert.Nil(t, err)
+
+	// link: not linked
+	dots := Dots{
+		FileMappings: []FileMapping{
+			{
+				From: cwd + "/examples/zshrc",
+				To:   "out/zshrc",
+				As:   "link",
+			},
+		},
+	}
+	dots.diff() // should report "not linked"
+
+	// link: correctly linked
+	assert.Nil(t, createPath("out/"))
+	assert.Nil(t, os.Symlink(cwd+"/examples/zshrc", "out/zshrc"))
+	dots.diff() // should report "all dotfiles are in sync"
+
+	// link: wrong target
+	os.Remove("out/zshrc")
+	assert.Nil(t, os.Symlink("/wrong/target", "out/zshrc"))
+	dots.diff() // should report wrong link target
+
+	// copy: not copied
+	os.Remove("out/zshrc")
+	dots = Dots{
+		FileMappings: []FileMapping{
+			{
+				From: cwd + "/examples/zshrc",
+				To:   "out/zshrc",
+				As:   "copy",
+			},
+		},
+	}
+	dots.diff() // should report "not copied"
+
+	// copy: in sync
+	src, err := os.ReadFile(cwd + "/examples/zshrc")
+	assert.Nil(t, err)
+	assert.Nil(t, os.WriteFile("out/zshrc", src, 0644))
+	dots.diff() // should report "all dotfiles are in sync"
+
+	// copy: content differs
+	assert.Nil(t, os.WriteFile("out/zshrc", []byte("different"), 0644))
+	dots.diff() // should report "content differs"
+}
+
 func TestUnmap(t *testing.T) {
 	// removes a symlink
 	to := "out/"

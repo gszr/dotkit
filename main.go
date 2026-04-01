@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,19 +21,10 @@ import (
 )
 
 /*
- * initialization and flags
+ * initialization and commands
  */
 
 var logger *log.Logger
-
-var (
-	flagValidateOnly bool
-	flagDotFile      string
-	flagVerbose      bool
-	flagRmOnly       bool
-	flagRm           bool
-	flagV            bool
-)
 
 var (
 	version   = "dev"
@@ -44,19 +34,38 @@ var (
 	builtBy   = ""
 )
 
-func initFlags() {
-	flag.StringVar(&flagDotFile, "dot", "dot.yml", "the dots config file")
-	flag.BoolVar(&flagVerbose, "verbose", false, "verbose output")
-	flag.BoolVar(&flagRm, "rm", true, "remove targets before creating")
-	flag.BoolVar(&flagRmOnly, "rm-only", false, "only remove targets, do not create")
-	flag.BoolVar(&flagValidateOnly, "validate-only", false, "only read and validate dots file")
-	flag.BoolVar(&flagV, "v", false, "print version info")
-}
+var (
+	flagVerbose bool
+	flagDotFile string
+)
+
+var (
+	syncCmd     = flag.NewFlagSet("sync", flag.ExitOnError)
+	rmCmd       = flag.NewFlagSet("rm", flag.ExitOnError)
+	diffCmd     = flag.NewFlagSet("diff", flag.ExitOnError)
+	validateCmd = flag.NewFlagSet("validate", flag.ExitOnError)
+)
 
 func init() {
-	initFlags()
 	logger = log.New(os.Stderr, "", 0)
+
+	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd, diffCmd, validateCmd} {
+		fs.StringVar(&flagDotFile, "f", "dot.yml", "the dots config file")
+	}
+	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd} {
+		fs.BoolVar(&flagVerbose, "verbose", false, "verbose output")
+	}
 }
+
+const usage = `Usage: dot <command> [flags]
+
+Commands:
+  sync       sync dotfiles to their destinations
+  rm         remove mapped dotfiles
+  diff       show dotfiles that are out of sync
+  validate   validate the dots config file
+  version    print version information
+`
 
 func printVersionInfo() {
 	art := `
@@ -129,18 +138,18 @@ func (m FileMapping) doCopy() error {
 	return nil
 }
 
-func unmapPath(path string) {
-	if pathExists := pathExists(path); !pathExists {
+func unmapPath(p string) {
+	if pathExists := pathExists(p); !pathExists {
 		if flagVerbose {
-			logger.Printf("rm %s: skipping, file not there\n", path)
+			logger.Printf("rm %s: skipping, file not there\n", p)
 		}
 	} else {
-		err := os.Remove(path)
+		err := os.Remove(p)
 		if err != nil {
-			logger.Printf("failed removing file %s, %v\n", path, err)
+			logger.Printf("failed removing file %s, %v\n", p, err)
 		}
 		if flagVerbose {
-			logger.Printf("rm %s: success\n", path)
+			logger.Printf("rm %s: success\n", p)
 		}
 	}
 }
@@ -189,10 +198,6 @@ type Dots struct {
 	Opts         Opts          `yaml:"opt"`
 	FileMappings []FileMapping `yaml:"map"`
 	Resources    []Resource    `yaml:"fetch"`
-}
-
-type YamlURL struct {
-	*url.URL
 }
 
 type Resource struct {
@@ -382,7 +387,7 @@ func fetchResource(resource Resource) error {
 	return nil
 }
 
-func (dots Dots) iterateFileMappings() {
+func (dots Dots) sync() {
 	for _, mapping := range dots.FileMappings {
 		if !mapping.isMatchingOs() {
 			if flagVerbose {
@@ -390,25 +395,12 @@ func (dots Dots) iterateFileMappings() {
 			}
 			continue
 		}
-		if flagRm { // remove before mapping by default
-			unmapPath(mapping.To)
-			if flagRmOnly {
-				continue
-			}
-		}
+		unmapPath(mapping.To)
 		mapping.domap()
 	}
-}
-
-func (dots Dots) iterateResources() {
 	for _, resource := range dots.Resources {
-		if flagRm { // remove before mapping by default
-			unmapPath(resource.To)
-			if flagRmOnly {
-				continue
-			}
-		}
-		if ! resource.Skip {
+		unmapPath(resource.To)
+		if !resource.Skip {
 			err := fetchResource(resource)
 			if err != nil {
 				logger.Printf("error fetching resource %s, %v", resource.Url, err)
@@ -417,9 +409,85 @@ func (dots Dots) iterateResources() {
 	}
 }
 
-func (dots Dots) iterate() {
-	dots.iterateFileMappings()
-	dots.iterateResources()
+func collapseTilde(p string) string {
+	home := getHomeDir()
+	if strings.HasPrefix(p, home) {
+		return "~" + strings.TrimPrefix(p, home)
+	}
+	return p
+}
+
+func (dots Dots) diff() {
+	synced := true
+	for _, mapping := range dots.FileMappings {
+		if !mapping.isMatchingOs() {
+			continue
+		}
+		from := collapseTilde(mapping.From)
+		to := collapseTilde(mapping.To)
+		switch mapping.As {
+		case "link":
+			target, err := os.Readlink(mapping.To)
+			if err != nil {
+				logger.Printf("- %s -> %s (not linked)\n", from, to)
+				synced = false
+			} else if target != mapping.From {
+				logger.Printf("~ %s -> %s (linked to %s)\n", from, to, collapseTilde(target))
+				synced = false
+			}
+		case "copy":
+			if !pathExists(mapping.To) {
+				logger.Printf("- %s -> %s (not copied)\n", from, to)
+				synced = false
+				continue
+			}
+			srcContent, err := mapping.expectedContent()
+			if err != nil {
+				logger.Printf("! %s: %v\n", from, err)
+				synced = false
+				continue
+			}
+			dstContent, err := os.ReadFile(mapping.To)
+			if err != nil {
+				logger.Printf("! %s: %v\n", to, err)
+				synced = false
+				continue
+			}
+			if !bytes.Equal(srcContent, dstContent) {
+				logger.Printf("~ %s -> %s (content differs)\n", from, to)
+				synced = false
+			}
+		}
+	}
+	if synced {
+		logger.Println("all dotfiles are in sync")
+	}
+}
+
+func (m FileMapping) expectedContent() ([]byte, error) {
+	src, err := os.ReadFile(m.From)
+	if err != nil {
+		return nil, err
+	}
+	if len(m.With) > 0 {
+		return []byte(evalTemplateString(string(src), m.With)), nil
+	}
+	return src, nil
+}
+
+func (dots Dots) rm() {
+	for _, mapping := range dots.FileMappings {
+		if !mapping.isMatchingOs() {
+			if flagVerbose {
+				logger.Printf("not on %s, skipping %s\n", mapping.Os, mapping.From)
+			}
+			continue
+		}
+		unmapPath(mapping.To)
+	}
+	for _, resource := range dots.Resources {
+		unmapPath(resource.To)
+	}
 }
 
 /*
@@ -491,22 +559,37 @@ func readDotFile(file string) Dots {
 		os.Exit(1)
 	}
 
-	if flagValidateOnly {
-		logger.Printf("yay, dots file valid!")
-		os.Exit(0)
-	}
-
 	return newDots
 }
 
 func main() {
-	flag.Parse()
-
-	if flagV {
-		printVersionInfo()
-		os.Exit(0)
+	if len(os.Args) < 2 {
+		fmt.Print(usage)
+		os.Exit(1)
 	}
 
-	dots := readDotFile(flagDotFile)
-	dots.iterate()
+	switch os.Args[1] {
+	case "sync":
+		syncCmd.Parse(os.Args[2:])
+		dots := readDotFile(flagDotFile)
+		dots.sync()
+	case "rm":
+		rmCmd.Parse(os.Args[2:])
+		dots := readDotFile(flagDotFile)
+		dots.rm()
+	case "diff":
+		diffCmd.Parse(os.Args[2:])
+		dots := readDotFile(flagDotFile)
+		dots.diff()
+	case "validate":
+		validateCmd.Parse(os.Args[2:])
+		dots := readDotFile(flagDotFile)
+		_ = dots
+		logger.Printf("yay, dots file valid!")
+	case "version":
+		printVersionInfo()
+	default:
+		fmt.Print(usage)
+		os.Exit(1)
+	}
 }
