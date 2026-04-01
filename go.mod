@@ -1,4 +1,4 @@
-module github.com/gszr/dot
+module github.com/gszr/dotkit
 
 go 1.23.0
 

@@ -50,14 +50,14 @@ func init() {
 	logger = log.New(os.Stderr, "", 0)
 
 	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd, diffCmd, validateCmd} {
-		fs.StringVar(&flagDotFile, "f", "dot.yml", "the dots config file")
+		fs.StringVar(&flagDotFile, "f", "dotkit.yml", "the dots config file")
 	}
 	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd} {
 		fs.BoolVar(&flagVerbose, "verbose", false, "verbose output")
 	}
 }
 
-const usage = `Usage: dot <command> [flags]
+const usage = `Usage: dotkit <command> [flags]
 
 Commands:
   sync       sync dotfiles to their destinations
@@ -69,13 +69,13 @@ Commands:
 
 func printVersionInfo() {
 	art := `
-    |          
-  __|   __ _|_ 
- /  |  /  \_|  
-o\_/|_/\__/ |_/
+     |        _|_  |  _|_
+   __|  __ _|_ |   |_  |
+  /  | /  \_|  |__ |   |
+o\_/|_/\__/ |_/    |   |_/
 `
 	logger.Print(goversion.GetVersionInfo(
-		goversion.WithAppDetails("dot", "a simple dot file manager", ""),
+		goversion.WithAppDetails("dotkit", "a minimal dotfiles manager", ""),
 		goversion.WithASCIIName(art),
 		func(i *goversion.Info) {
 			i.GitCommit = commit
