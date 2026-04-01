@@ -63,7 +63,7 @@ Commands:
   rm         remove mapped dotfiles
   diff       show dotfiles that are out of sync
   validate   validate the dots config file
-  version    print version information
+  version    print version and build information
 
 Flags:
   -f string    config file (default "dotkit.yml")
@@ -76,7 +76,7 @@ Removes existing targets and re-creates all mappings. This is the primary comman
 
 ### `dotkit diff`
 
-Shows which dotfiles are out of sync without making changes:
+Shows which dotfiles and fetched resources are out of sync without making changes:
 
 ```
 - ~/dotfiles/zshrc -> ~/.zshrc (not linked)
@@ -109,9 +109,9 @@ map:
 
 | Field  | Description | Default |
 |--------|-------------|---------|
-| `to`   | Destination path. `~` is expanded. | `~/.<filename>` |
+| `to`   | Destination path. `~` is expanded. Parent directories are created automatically. | `~/.<filename>` |
 | `as`   | `link` (symlink) or `copy` | `link` |
-| `os`   | `linux`, `macos`, or `all` | `all` |
+| `os`   | `linux`, `macos` (or `darwin`), or `all` | `all` |
 | `with` | Template variables (copy mode only) | — |
 
 ### Templating
@@ -151,7 +151,7 @@ fetch:
 | Field  | Description |
 |--------|-------------|
 | `url`  | Remote URL |
-| `to`   | Local destination path |
+| `to`   | Local destination path. If it's a directory (for `file` mode), the filename is inferred from the URL. |
 | `as`   | `git` (clone) or `file` (HTTP download) |
 | `skip` | Set to `true` to skip fetching |
 
