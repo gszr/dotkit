@@ -21,12 +21,26 @@ Linux and MacOS on `x86_64` or `arm64`.
 
 ## What
 
-* Map dotfiles living in a directory somehwere -- say, a git repo --  
+* Map dotfiles living in a directory somewhere -- say, a git repo --
   to their destination
-* Future: fetch additional resources from the web, also mapping them to their 
+* Fetch additional resources from the web, also mapping them to their
   destination
 
 ## Usage
+
+```
+dot <command> [flags]
+
+Commands:
+  sync       sync dotfiles to their destinations
+  rm         remove mapped dotfiles
+  validate   validate the dots config file
+  version    print version information
+
+Flags (sync, rm, validate):
+  -f string    the dots config file (default "dot.yml")
+  -verbose     verbose output (sync, rm only)
+```
 
 Let's start with an example:
 
@@ -149,7 +163,7 @@ fetch:
   as: git
 ```
 
-With this, when I run `dot`, all of the Git repositories will be cloned and 
+With this, when I run `dot sync`, all of the Git repositories will be cloned and
 placed in the destination paths indicated in the `to` field.
 
 Additionally to Git repositories, files can also be downloaded with the
@@ -162,13 +176,13 @@ Additionally to Git repositories, files can also be downloaded with the
 - [x] Map source to specified destination
   - [x] Resolve tilde in destination
 - [x] Verbose mode
-- [x] rm-only flag
+- [x] `rm` subcommand
 - [x] `cd` opt (files live under a subdir)
 - [x] Create destination path if needed
 - [x] OS filter
 - [x] CI/CD
-- [ ] Validate dot file
-- [ ] Tests
+- [x] Validate dot file
+- [x] Tests
 
 ---
 
