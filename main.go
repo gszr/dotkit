@@ -376,6 +376,13 @@ func fetchHttpResource(resource Resource) error {
 	return nil
 }
 
+func (r Resource) resolvedTo() string {
+	if r.As == "file" && strings.HasSuffix(r.To, "/") {
+		return filepath.Join(r.To, path.Base(r.Url))
+	}
+	return r.To
+}
+
 func fetchResource(resource Resource) error {
 	switch resource.As {
 	case "git":
@@ -399,68 +406,96 @@ func (dots Dots) sync() {
 		mapping.domap()
 	}
 	for _, resource := range dots.Resources {
-		unmapPath(resource.To)
-		if !resource.Skip {
-			err := fetchResource(resource)
-			if err != nil {
-				logger.Printf("error fetching resource %s, %v", resource.Url, err)
-			}
+		if resource.Skip {
+			continue
+		}
+		unmapPath(resource.resolvedTo())
+		err := fetchResource(resource)
+		if err != nil {
+			logger.Printf("error fetching resource %s, %v", resource.Url, err)
 		}
 	}
 }
 
 func collapseTilde(p string) string {
 	home := getHomeDir()
-	if strings.HasPrefix(p, home) {
-		return "~" + strings.TrimPrefix(p, home)
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
 	}
 	return p
 }
 
-func (dots Dots) diff() {
-	synced := true
+type DiffStatus int
+
+const (
+	DiffMissing  DiffStatus = iota // target does not exist
+	DiffChanged                    // target exists but differs
+	DiffError                      // could not compare
+)
+
+type DiffEntry struct {
+	From    string
+	To      string
+	Status  DiffStatus
+	Detail  string
+}
+
+func (dots Dots) diff() []DiffEntry {
+	var entries []DiffEntry
 	for _, mapping := range dots.FileMappings {
 		if !mapping.isMatchingOs() {
 			continue
 		}
-		from := collapseTilde(mapping.From)
-		to := collapseTilde(mapping.To)
 		switch mapping.As {
 		case "link":
 			target, err := os.Readlink(mapping.To)
 			if err != nil {
-				logger.Printf("- %s -> %s (not linked)\n", from, to)
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffMissing, "not linked"})
 			} else if target != mapping.From {
-				logger.Printf("~ %s -> %s (linked to %s)\n", from, to, collapseTilde(target))
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffChanged, "linked to " + target})
 			}
 		case "copy":
 			if !pathExists(mapping.To) {
-				logger.Printf("- %s -> %s (not copied)\n", from, to)
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffMissing, "not copied"})
 				continue
 			}
 			srcContent, err := mapping.expectedContent()
 			if err != nil {
-				logger.Printf("! %s: %v\n", from, err)
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffError, err.Error()})
 				continue
 			}
 			dstContent, err := os.ReadFile(mapping.To)
 			if err != nil {
-				logger.Printf("! %s: %v\n", to, err)
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffError, err.Error()})
 				continue
 			}
 			if !bytes.Equal(srcContent, dstContent) {
-				logger.Printf("~ %s -> %s (content differs)\n", from, to)
-				synced = false
+				entries = append(entries, DiffEntry{mapping.From, mapping.To, DiffChanged, "content differs"})
 			}
 		}
 	}
-	if synced {
+	return entries
+}
+
+func printDiff(entries []DiffEntry) {
+	if len(entries) == 0 {
 		logger.Println("all dotfiles are in sync")
+		return
+	}
+	for _, e := range entries {
+		from := collapseTilde(e.From)
+		to := collapseTilde(e.To)
+		switch e.Status {
+		case DiffMissing:
+			logger.Printf("- %s -> %s (%s)\n", from, to, e.Detail)
+		case DiffChanged:
+			logger.Printf("~ %s -> %s (%s)\n", from, to, collapseTilde(e.Detail))
+		case DiffError:
+			logger.Printf("! %s -> %s (%s)\n", from, to, e.Detail)
+		}
 	}
 }
 
@@ -486,7 +521,7 @@ func (dots Dots) rm() {
 		unmapPath(mapping.To)
 	}
 	for _, resource := range dots.Resources {
-		unmapPath(resource.To)
+		unmapPath(resource.resolvedTo())
 	}
 }
 
@@ -580,7 +615,7 @@ func main() {
 	case "diff":
 		diffCmd.Parse(os.Args[2:])
 		dots := readDotFile(flagDotFile)
-		dots.diff()
+		printDiff(dots.diff())
 	case "validate":
 		validateCmd.Parse(os.Args[2:])
 		dots := readDotFile(flagDotFile)
