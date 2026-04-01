@@ -1,120 +1,122 @@
-# dot
+# dotkit 🏠📦🔗
 
-dot files manager.
+A minimal, single-binary dotfiles manager written in Go.
 
-## Download
+Declaratively map your configuration files to their destinations using a simple 
+YAML spec. Supports symlinks, file copies with templating, OS-specific rules, 
+and fetching remote resources — all without dependencies.
 
-Download the latest version with:
+## Install
+
+### From releases
 
 ```sh
-$ curl --remote-name-all --location  $( \
-    curl -s https://api.github.com/repos/gszr/dot/releases/latest \
+curl --remote-name-all --location $( \
+    curl -s https://api.github.com/repos/gszr/dotkit/releases/latest \
     | grep "browser_download_url.*$(uname -s)-$(uname -m).*" \
     | cut -d : -f 2,3 \
     | tr -d \" )
 ```
 
-(Binaries were aptly named (check `.goreleaser.yml`) so that 
-`uname` could be used directly - no `if`s : )
+Available for Linux and macOS on `x86_64` and `arm64`.
 
-Linux and MacOS on `x86_64` or `arm64`.
+### From source
 
-## What
+```sh
+go install github.com/gszr/dotkit@latest
+```
 
-* Map dotfiles living in a directory somewhere -- say, a git repo --
-  to their destination
-* Fetch additional resources from the web, also mapping them to their
-  destination
+## Quick start
 
-## Usage
+Create a `dotkit.yml` in your dotfiles directory:
+
+```yaml
+map:
+  gitconfig:
+  zshrc:
+    os: macos
+  config/alacritty.yml:
+    to: ~/.config/alacritty/alacritty.yml
+
+fetch:
+- url: https://github.com/user/vim-plugin
+  to: ~/.vim/pack/plugins/start/vim-plugin
+  as: git
+```
+
+Then run:
+
+```sh
+dotkit sync
+```
+
+That's it. `gitconfig` gets symlinked to `~/.gitconfig`, `zshrc` to `~/.zshrc` (on macOS only), 
+and the Vim plugin gets cloned.
+
+## Commands
 
 ```
-dot <command> [flags]
+dotkit <command> [flags]
 
 Commands:
   sync       sync dotfiles to their destinations
   rm         remove mapped dotfiles
+  diff       show dotfiles that are out of sync
   validate   validate the dots config file
   version    print version information
 
-Flags (sync, rm, validate):
-  -f string    the dots config file (default "dot.yml")
-  -verbose     verbose output (sync, rm only)
+Flags:
+  -f string    config file (default "dotkit.yml")
+  -verbose     verbose output (sync, rm, diff)
 ```
 
-Let's start with an example:
+### `dotkit sync`
+
+Removes existing targets and re-creates all mappings. This is the primary command — run it whenever your dotfiles change.
+
+### `dotkit diff`
+
+Shows which dotfiles are out of sync without making changes:
+
+```
+- ~/dotfiles/zshrc -> ~/.zshrc (not linked)
+~ ~/dotfiles/gitconfig -> ~/.gitconfig (linked to /wrong/path)
+~ ~/dotfiles/gpg-agent.conf -> ~/.gnupg/gpg-agent.conf (content differs)
+```
+
+### `dotkit rm`
+
+Removes all mapped targets. Useful for cleaning up before switching machines or dotfile repos.
+
+### `dotkit validate`
+
+Checks the config file for errors without applying anything.
+
+## Configuration
+
+### File mappings
+
+Each entry under `map` is a file in the current directory (or under `opt.cd`):
 
 ```yaml
 map:
-  i3:
-  imwheelrc:
-  config/alacritty.yml:
-  config/redshift.conf:
+  gitconfig:           # symlinks to ~/.gitconfig (inferred)
+  zshrc:
+    to: ~/.zshrc       # explicit destination
+    as: copy           # copy instead of symlink
+    os: linux          # only on Linux
 ```
 
-### Behavior
+| Field  | Description | Default |
+|--------|-------------|---------|
+| `to`   | Destination path. `~` is expanded. | `~/.<filename>` |
+| `as`   | `link` (symlink) or `copy` | `link` |
+| `os`   | `linux`, `macos`, or `all` | `all` |
+| `with` | Template variables (copy mode only) | — |
 
-- Top-level `files` map lists files along with mapping attributes
-- Each file name maps to a file in the current working directory -- ie,
-  `i3` and `imwheelrc` are both files in the CWD where the `dot` CLI was
-  executed. Files may list the following optional mapping attributes:
-  * `to`: where it ends up
-    - If the file starts with a `~`, it is resolved to the current user's home
-      dir
-    - If omitted, the default is `~/.<file name>`; in the example above,
-      `i3` maps to `~/.i3`
-  * `as`: how the mapping is performed - can be `symlink` or `copy`, for a symlink and a copy,
-    respectively (the default is a symlink)
-  * `os`: restricts the OS where the mapping applies; can be `linux`, `macos` or
-    `all` - if not specified, `all` is implied
-  * `with`: valid only `as: copy` is used; lists variables whose values are replaced
-    in the input file's contents using the [Go templating engine](https://pkg.go.dev/text/template).
-    Currently, the feature exposes the only `.Os` variable within `with` values.
+### Templating
 
-### Examples
-
-```yaml
-map:
-  i3:
-    os: linux
-  xinitrc:
-    os: linux
-  Xresources:
-    os: linux
-  imwheelrc:
-    os: linux
-  config/alacritty.yml:
-    os: macos
-  docker/config.json:
-    as: copy
-
-opt:
-  cd: dots/
-```
-
-In this example, all files live under a subdirectory `dots/`:
-```sh
-$ tree .
-.
-├── dots
-│   ├── config
-│   │   └── alacritty.yml
-│   ├── docker
-│   │   └── config.json
-│   ├── i3
-│   ├── imwheelrc
-│   ├── xinitrc
-│   └── Xresources
-└── dot.yml
-```
-
-#### Templating
-
-Some system utilities have built-in support for simple variable substitutions through
-environment variables, while others do not. In these cases, one can use `dot`'s templating
-feature to allow for customizations.
-
-Let's take the following dots spec as an example:
+For files that need OS-specific content, use Go's [text/template](https://pkg.go.dev/text/template) syntax with `as: copy`:
 
 ```yaml
 map:
@@ -124,66 +126,84 @@ map:
       PinentryPrefix: '{{if eq .Os "darwin"}}/opt/homebrew/bin{{else}}/usr/bin{{end}}'
 ```
 
-The contents of `gnupg/gpg-agent.conf` look like the following:
+The source file references the variable:
+
 ```
-default-cache-ttl 1800
-max-cache-ttl 3600
-enable-ssh-support
 pinentry-program {{.PinentryPrefix}}/pinentry-tty
 ```
 
-This will result in the correct path to `pinentry-tty` being set during the dot
-file mapping process.
+The `.Os` variable (matching Go's `runtime.GOOS`) is available in `with` values.
 
-#### Fetching resources
+### Fetching remote resources
 
-Sometimes, our environment relies not only on our own dotfiles, but also on 
-remote resources that need to be downloaded. For example, one may use Vim plugins 
-that are hosted in GitHub ([like myself][1]). For these and other similar use
-cases, `dot` supports fetching remote resources.
-
-See the following chunk of my own `dot` file:
+Clone Git repositories or download files as part of your setup:
 
 ```yaml
+fetch:
+- url: https://github.com/altercation/vim-colors-solarized
+  to: ~/.vim/pack/plugins/start/vim-colors-solarized
+  as: git
+- url: https://example.com/script.sh
+  to: ~/bin/
+  as: file
+```
+
+| Field  | Description |
+|--------|-------------|
+| `url`  | Remote URL |
+| `to`   | Local destination path |
+| `as`   | `git` (clone) or `file` (HTTP download) |
+| `skip` | Set to `true` to skip fetching |
+
+### Options
+
+```yaml
+opt:
+  cd: dots/    # all source files are relative to this subdirectory
+```
+
+## Full example
+
+```yaml
+map:
+  gitconfig:
+  zshrc:
+    os: macos
+  i3:
+    os: linux
+  config/alacritty.yml:
+    to: ~/.config/alacritty/alacritty.yml
+  docker/config.json:
+    as: copy
+  gnupg/gpg-agent.conf:
+    as: copy
+    with:
+      PinentryPrefix: '{{if eq .Os "darwin"}}/opt/homebrew/bin{{else}}/usr/bin{{end}}'
+
 fetch:
 - url: https://github.com/gszr/dynamic-colors
   to: ~/.dynamic-colors
   as: git
-- url: https://github.com/altercation/vim-colors-solarized
-  to: ~/.vim/pack/plugins/start/vim-colors-solarized
-  as: git
-- url: https://github.com/ruanyl/vim-gh-line
-  to: ~/.vim/pack/plugins/start/vim-gh-line
-  as: git
-- url: https://github.com/mhinz/vim-rfc
-  to: ~/.vim/pack/plugins/start/vim-rfc
-  as: git
-- url: https://github.com/vimwiki/vimwiki
-  to: ~/.vim/pack/plugins/start/vimwiki
-  as: git
+
+opt:
+  cd: dots/
 ```
 
-With this, when I run `dot sync`, all of the Git repositories will be cloned and
-placed in the destination paths indicated in the `to` field.
+```
+.
+├── dots/
+│   ├── config/
+│   │   └── alacritty.yml
+│   ├── docker/
+│   │   └── config.json
+│   ├── gnupg/
+│   │   └── gpg-agent.conf
+│   ├── gitconfig
+│   ├── i3
+│   └── zshrc
+└── dotkit.yml
+```
 
-Additionally to Git repositories, files can also be downloaded with the
-`as` field set to `file`.
+## License
 
-## Features
-
-- [x] Map source to inferred destination (`file` to `~/.file`)
-  - [x] `.file` to `~/.file`
-- [x] Map source to specified destination
-  - [x] Resolve tilde in destination
-- [x] Verbose mode
-- [x] `rm` subcommand
-- [x] `cd` opt (files live under a subdir)
-- [x] Create destination path if needed
-- [x] OS filter
-- [x] CI/CD
-- [x] Validate dot file
-- [x] Tests
-
----
-
-[1]: https://github.com/gszr/dotfiles/tree/51fc06c96d56711457c29a4d4b396ef9e58103ff/dots/vim/pack/plugins/start
+[MIT](LICENSE)

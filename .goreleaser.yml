@@ -1,5 +1,5 @@
 builds:
-  - id: dot
+  - id: dotkit
     goarch:
       - arm64
       - amd64
@@ -51,9 +51,9 @@ changelog:
 
 release:
   footer: |
-    **Full Changelog**: https://github.com/gszr/dot/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/gszr/dotkit/compare/{{ .PreviousTag }}...{{ .Tag }}
   github:
     owner: gszr
-    name: dot
+    name: dotkit
   target_commitish: "{{ .Commit }}"
 
