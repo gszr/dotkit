@@ -67,7 +67,7 @@ Commands:
 
 Flags:
   -f string    config file (default "dotkit.yml")
-  -verbose     verbose output (sync, rm, diff)
+  -verbose     verbose output (sync, rm)
 ```
 
 ### `dotkit sync`

@@ -129,8 +129,7 @@ func TestDiff(t *testing.T) {
 	cwd, err := os.Getwd()
 	assert.Nil(t, err)
 
-	// link: not linked
-	dots := Dots{
+	linkDots := Dots{
 		FileMappings: []FileMapping{
 			{
 				From: cwd + "/examples/zshrc",
@@ -139,21 +138,30 @@ func TestDiff(t *testing.T) {
 			},
 		},
 	}
-	dots.diff() // should report "not linked"
+
+	// link: not linked
+	entries := linkDots.diff()
+	assert.Equal(t, 1, len(entries))
+	assert.Equal(t, DiffMissing, entries[0].Status)
+	assert.Equal(t, "not linked", entries[0].Detail)
 
 	// link: correctly linked
 	assert.Nil(t, createPath("out/"))
 	assert.Nil(t, os.Symlink(cwd+"/examples/zshrc", "out/zshrc"))
-	dots.diff() // should report "all dotfiles are in sync"
+	entries = linkDots.diff()
+	assert.Equal(t, 0, len(entries))
 
 	// link: wrong target
 	os.Remove("out/zshrc")
 	assert.Nil(t, os.Symlink("/wrong/target", "out/zshrc"))
-	dots.diff() // should report wrong link target
+	entries = linkDots.diff()
+	assert.Equal(t, 1, len(entries))
+	assert.Equal(t, DiffChanged, entries[0].Status)
+	assert.Equal(t, "linked to /wrong/target", entries[0].Detail)
 
 	// copy: not copied
 	os.Remove("out/zshrc")
-	dots = Dots{
+	copyDots := Dots{
 		FileMappings: []FileMapping{
 			{
 				From: cwd + "/examples/zshrc",
@@ -162,17 +170,24 @@ func TestDiff(t *testing.T) {
 			},
 		},
 	}
-	dots.diff() // should report "not copied"
+	entries = copyDots.diff()
+	assert.Equal(t, 1, len(entries))
+	assert.Equal(t, DiffMissing, entries[0].Status)
+	assert.Equal(t, "not copied", entries[0].Detail)
 
 	// copy: in sync
 	src, err := os.ReadFile(cwd + "/examples/zshrc")
 	assert.Nil(t, err)
 	assert.Nil(t, os.WriteFile("out/zshrc", src, 0644))
-	dots.diff() // should report "all dotfiles are in sync"
+	entries = copyDots.diff()
+	assert.Equal(t, 0, len(entries))
 
 	// copy: content differs
 	assert.Nil(t, os.WriteFile("out/zshrc", []byte("different"), 0644))
-	dots.diff() // should report "content differs"
+	entries = copyDots.diff()
+	assert.Equal(t, 1, len(entries))
+	assert.Equal(t, DiffChanged, entries[0].Status)
+	assert.Equal(t, "content differs", entries[0].Detail)
 }
 
 func TestUnmap(t *testing.T) {
