@@ -395,10 +395,31 @@ func fetchResource(resource Resource) error {
 }
 
 func (dots Dots) sync() {
+	// Build a set of out-of-sync mappings so we can skip those already in sync
+	diffEntries := dots.diff()
+	outOfSync := make(map[string]DiffStatus, len(diffEntries))
+	for _, e := range diffEntries {
+		outOfSync[e.From] = e.Status
+	}
+
 	for _, mapping := range dots.FileMappings {
 		if !mapping.isMatchingOs() {
 			if flagVerbose {
 				logger.Printf("not on %s, skipping %s\n", mapping.Os, mapping.From)
+			}
+			continue
+		}
+		status, needsSync := outOfSync[mapping.From]
+		if !needsSync {
+			if flagVerbose {
+				logger.Printf("already in sync, skipping %s\n", mapping.From)
+			}
+			continue
+		}
+		// Skip copied items that already exist to avoid destroying user config
+		if mapping.As == "copy" && status != DiffMissing {
+			if flagVerbose {
+				logger.Printf("copy target exists, skipping %s\n", mapping.From)
 			}
 			continue
 		}
@@ -409,7 +430,12 @@ func (dots Dots) sync() {
 		if resource.Skip {
 			continue
 		}
-		unmapPath(resource.resolvedTo())
+		if pathExists(resource.resolvedTo()) {
+			if flagVerbose {
+				logger.Printf("already fetched, skipping %s\n", resource.Url)
+			}
+			continue
+		}
 		err := fetchResource(resource)
 		if err != nil {
 			logger.Printf("error fetching resource %s, %v", resource.Url, err)
