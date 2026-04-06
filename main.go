@@ -69,10 +69,10 @@ Commands:
 
 func printVersionInfo() {
 	art := `
-     |        _|_  |  _|_
-   __|  __ _|_ |   |_  |
-  /  | /  \_|  |__ |   |
-o\_/|_/\__/ |_/    |   |_/
+  __| | ___ | |_| | _(_) |_ 
+ / _' |/ _ \| __| |/ / | __|
+| (_| | (_) | |_|   <| | |_ 
+ \__,_|\___/ \__|_|\_\_|\__|
 `
 	logger.Print(goversion.GetVersionInfo(
 		goversion.WithAppDetails("dotkit", "a minimal dotfiles manager", ""),
