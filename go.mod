@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/caarlos0/go-version v0.2.0
-	github.com/go-git/go-git/v5 v5.17.1
+	github.com/go-git/go-git/v5 v5.17.2
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
