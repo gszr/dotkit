@@ -9,13 +9,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	goversion "github.com/caarlos0/go-version"
-	"github.com/go-git/go-git/v5"
 	"gopkg.in/yaml.v3"
 	"text/template"
 )
@@ -27,11 +26,10 @@ import (
 var logger *log.Logger
 
 var (
-	version   = "dev"
-	treeState = ""
-	commit    = ""
-	date      = ""
-	builtBy   = ""
+	version = "dev"
+	commit  = ""
+	date    = ""
+	builtBy = ""
 )
 
 var (
@@ -68,23 +66,20 @@ Commands:
 `
 
 func printVersionInfo() {
-	art := `
-  __| | ___ | |_| | _(_) |_ 
+	fmt.Print(`
+  __| | ___ | |_| | _(_) |_
  / _' |/ _ \| __| |/ / | __|
-| (_| | (_) | |_|   <| | |_ 
+| (_| | (_) | |_|   <| | |_
  \__,_|\___/ \__|_|\_\_|\__|
-`
-	logger.Print(goversion.GetVersionInfo(
-		goversion.WithAppDetails("dotkit", "a minimal dotfiles manager", ""),
-		goversion.WithASCIIName(art),
-		func(i *goversion.Info) {
-			i.GitCommit = commit
-			i.GitTreeState = treeState
-			i.BuildDate = date
-			i.GitVersion = version
-			i.BuiltBy = builtBy
-		},
-	))
+
+`)
+	fmt.Printf("dotkit - a minimal dotfiles manager\n")
+	fmt.Printf("version:    %s\n", version)
+	fmt.Printf("commit:     %s\n", commit)
+	fmt.Printf("built by:   %s\n", builtBy)
+	fmt.Printf("build date: %s\n", date)
+	fmt.Printf("go version: %s\n", runtime.Version())
+	fmt.Printf("platform:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }
 
 /*
@@ -203,7 +198,7 @@ type Dots struct {
 type Resource struct {
 	Url  string `yaml:"url"`
 	To   string `yaml:"to"`
-	As   string `yaml:"as"`
+	Do   string `yaml:"do"`
 	Skip bool   `yaml:"skip"`
 }
 
@@ -243,8 +238,8 @@ func (dots Dots) validate() []error {
 		if len(resource.To) == 0 {
 			errs = append(errs, fmt.Errorf("%s: resource destination (`to`) cannot be empty", resource.Url))
 		}
-		if len(resource.As) == 0 {
-			errs = append(errs, fmt.Errorf("%s: resource type (`as`) cannot be empty", resource.Url))
+		if len(resource.Url) == 0 {
+			errs = append(errs, fmt.Errorf("fetch: resource url cannot be empty"))
 		}
 	}
 	return errs
@@ -329,69 +324,69 @@ func (dots Dots) transform() Dots {
 	return newDots
 }
 
-func fetchGitResource(resource Resource) error {
-	if err := createPath(resource.To); err != nil {
-		return err
-	}
-	_, err := git.PlainClone(resource.To, false, &git.CloneOptions{
-		URL:      resource.Url,
-		Progress: os.Stdout,
-	})
-
-	return err
-}
-
-func fetchHttpResource(resource Resource) error {
-	req, err := http.NewRequest("GET", resource.Url, nil)
+func download(url string, dest string) error {
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
-	httpClient := http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if !pathExists(resource.To) {
-		if err := createPath(resource.To); err != nil {
-			return err
-		}
+	if err := createPath(dest); err != nil {
+		return err
 	}
 
-	if strings.HasSuffix(resource.To, "/") {
-		resource.To = filepath.Join(resource.To, path.Base(resource.Url))
-	}
-
-	fout, err := os.Create(resource.To)
+	fout, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 	defer fout.Close()
 
-	if _, err := io.Copy(fout, resp.Body); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r Resource) resolvedTo() string {
-	if r.As == "file" && strings.HasSuffix(r.To, "/") {
-		return filepath.Join(r.To, path.Base(r.Url))
-	}
-	return r.To
+	_, err = io.Copy(fout, resp.Body)
+	return err
 }
 
 func fetchResource(resource Resource) error {
-	switch resource.As {
-	case "git":
-		return fetchGitResource(resource)
-	case "file":
-		return fetchHttpResource(resource)
+	if len(resource.Do) > 0 {
+		// Download to a temp file, run do, then clean up
+		tmpFile, err := os.CreateTemp("", "dotkit-*-"+path.Base(resource.Url))
+		if err != nil {
+			return err
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.Close()
+		defer os.Remove(tmpPath)
+
+		if err := download(resource.Url, tmpPath); err != nil {
+			return err
+		}
+
+		doStr := resource.Do
+		doStr = strings.ReplaceAll(doStr, "{{from}}", tmpPath)
+		doStr = strings.ReplaceAll(doStr, "{{to}}", resource.To)
+
+		cmd := exec.Command("sh", "-c", doStr)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
 	}
 
-	return nil
+	// No do: download directly to destination
+	dest := resource.To
+	if strings.HasSuffix(dest, "/") {
+		dest = filepath.Join(dest, path.Base(resource.Url))
+	}
+	return download(resource.Url, dest)
+}
+
+func (r Resource) resolvedTo() string {
+	if len(r.Do) == 0 && strings.HasSuffix(r.To, "/") {
+		return filepath.Join(r.To, path.Base(r.Url))
+	}
+	return r.To
 }
 
 func (dots Dots) sync() {
@@ -436,8 +431,7 @@ func (dots Dots) sync() {
 			}
 			continue
 		}
-		err := fetchResource(resource)
-		if err != nil {
+		if err := fetchResource(resource); err != nil {
 			logger.Printf("error fetching resource %s, %v", resource.Url, err)
 		}
 	}

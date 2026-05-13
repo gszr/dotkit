@@ -16,24 +16,14 @@ map:
       PinentryPath: '{{if eq .Os "darwin"}}/opt/homebrew/bin{{else}}/usr/bin{{end}}'
 
 fetch:
-- url: https://github.com/gszr/dynamic-colors
-  to: out/dynamic-colors
-  as: git
-- url: https://github.com/altercation/vim-colors-solarized
-  to: out/vim/pack/plugins/start/vim-colors-solarized
-  as: git
-- url: https://github.com/ruanyl/vim-gh-line
-  to: out/vim/pack/plugins/start/vim-gh-line
-  as: git
-- url: https://github.com/mhinz/vim-rfc
-  to: out/vim/pack/plugins/start/vim-rfc
-  as: git
-- url: https://github.com/vimwiki/vimwiki
-  to: out/vim/pack/plugins/start/vimwiki
-  as: git
+- url: https://github.com/gszr/dynamic-colors/archive/refs/heads/master.tar.gz
+  to: out/dynamic-colors.tar.gz
+  do: mkdir -p out/dynamic-colors && tar -xzf {{from}} -C out/dynamic-colors --strip-components=1
+- url: https://github.com/altercation/vim-colors-solarized/archive/refs/heads/master.tar.gz
+  to: out/vim-colors-solarized.tar.gz
+  do: mkdir -p out/vim/pack/plugins/start/vim-colors-solarized && tar -xzf {{from}} -C out/vim/pack/plugins/start/vim-colors-solarized --strip-components=1
 - url: https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh
   to: out/
-  as: file
 
 opt:
   cd: examples/
