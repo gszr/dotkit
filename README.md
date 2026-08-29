@@ -61,6 +61,7 @@ dotkit <command> [flags]
 Commands:
   sync       sync dotfiles to their destinations
   rm         remove mapped dotfiles
+  ls         list current mappings
   diff       show dotfiles that are out of sync
   validate   validate the dots config file
   version    print version and build information
@@ -73,6 +74,16 @@ Flags:
 ### `dotkit sync`
 
 Removes existing targets and re-creates all mappings. This is the primary command — run it whenever your dotfiles change.
+
+### `dotkit ls`
+
+Lists resolved mappings for the current operating system:
+
+```
+SOURCE          DESTINATION             TYPE
+gitconfig       ~/.gitconfig            link
+gpg-agent.conf  ~/.gnupg/gpg-agent.conf copy
+```
 
 ### `dotkit diff`
 
