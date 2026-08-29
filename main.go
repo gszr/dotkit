@@ -540,18 +540,6 @@ func (m FileMapping) expectedContent() ([]byte, error) {
 	return src, nil
 }
 
-func collapseWorkingDir(p string) string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return collapseTilde(p)
-	}
-	rel, err := filepath.Rel(cwd, p)
-	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return rel
-	}
-	return collapseTilde(p)
-}
-
 func printMappings(w io.Writer, dots Dots) {
 	var mappings []FileMapping
 	for _, mapping := range dots.FileMappings {
@@ -565,8 +553,10 @@ func printMappings(w io.Writer, dots Dots) {
 
 	table := tabwriter.NewWriter(w, 0, 4, 1, ' ', 0)
 	fmt.Fprintln(table, "SOURCE\tDESTINATION\tTYPE")
+	cwd, _ := os.Getwd()
 	for _, mapping := range mappings {
-		fmt.Fprintf(table, "%s\t%s\t%s\n", collapseWorkingDir(mapping.From), collapseTilde(mapping.To), mapping.As)
+		from := strings.TrimPrefix(mapping.From, cwd+string(filepath.Separator))
+		fmt.Fprintf(table, "%s\t%s\t%s\n", collapseTilde(from), collapseTilde(mapping.To), mapping.As)
 	}
 	table.Flush()
 }
