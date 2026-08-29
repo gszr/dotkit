@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
@@ -188,6 +189,27 @@ func TestDiff(t *testing.T) {
 	assert.Equal(t, 1, len(entries))
 	assert.Equal(t, DiffChanged, entries[0].Status)
 	assert.Equal(t, "content differs", entries[0].Detail)
+}
+
+func TestPrintMappings(t *testing.T) {
+	var output bytes.Buffer
+	otherOs := "linux"
+	if runtime.GOOS == "linux" {
+		otherOs = "darwin"
+	}
+	cwd, err := os.Getwd()
+	assert.Nil(t, err)
+	dots := Dots{
+		FileMappings: []FileMapping{
+			{From: cwd + "/dots/zshrc", To: getHomeDir() + "/.zshrc", As: "link"},
+			{From: cwd + "/dots/gitconfig", To: getHomeDir() + "/.gitconfig", As: "copy"},
+			{From: "/inactive", To: "/inactive-target", As: "link", Os: otherOs},
+		},
+	}
+
+	printMappings(&output, dots)
+
+	assert.Equal(t, "SOURCE         DESTINATION  TYPE\ndots/gitconfig ~/.gitconfig copy\ndots/zshrc     ~/.zshrc     link\n", output.String())
 }
 
 func TestUnmap(t *testing.T) {

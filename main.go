@@ -12,12 +12,14 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"text/tabwriter"
+	"text/template"
 
 	goversion "github.com/caarlos0/go-version"
 	"github.com/go-git/go-git/v5"
 	"gopkg.in/yaml.v3"
-	"text/template"
 )
 
 /*
@@ -42,6 +44,7 @@ var (
 var (
 	syncCmd     = flag.NewFlagSet("sync", flag.ExitOnError)
 	rmCmd       = flag.NewFlagSet("rm", flag.ExitOnError)
+	lsCmd       = flag.NewFlagSet("ls", flag.ExitOnError)
 	diffCmd     = flag.NewFlagSet("diff", flag.ExitOnError)
 	validateCmd = flag.NewFlagSet("validate", flag.ExitOnError)
 )
@@ -49,7 +52,7 @@ var (
 func init() {
 	logger = log.New(os.Stderr, "", 0)
 
-	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd, diffCmd, validateCmd} {
+	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd, lsCmd, diffCmd, validateCmd} {
 		fs.StringVar(&flagDotFile, "f", "dotkit.yml", "the dots config file")
 	}
 	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd} {
@@ -62,6 +65,7 @@ const usage = `Usage: dotkit <command> [flags]
 Commands:
   sync       sync dotfiles to their destinations
   rm         remove mapped dotfiles
+  ls         list current mappings
   diff       show dotfiles that are out of sync
   validate   validate the dots config file
   version    print version information
@@ -457,16 +461,16 @@ func collapseTilde(p string) string {
 type DiffStatus int
 
 const (
-	DiffMissing  DiffStatus = iota // target does not exist
-	DiffChanged                    // target exists but differs
-	DiffError                      // could not compare
+	DiffMissing DiffStatus = iota // target does not exist
+	DiffChanged                   // target exists but differs
+	DiffError                     // could not compare
 )
 
 type DiffEntry struct {
-	From    string
-	To      string
-	Status  DiffStatus
-	Detail  string
+	From   string
+	To     string
+	Status DiffStatus
+	Detail string
 }
 
 func (dots Dots) diff() []DiffEntry {
@@ -534,6 +538,27 @@ func (m FileMapping) expectedContent() ([]byte, error) {
 		return []byte(evalTemplateString(string(src), m.With)), nil
 	}
 	return src, nil
+}
+
+func printMappings(w io.Writer, dots Dots) {
+	var mappings []FileMapping
+	for _, mapping := range dots.FileMappings {
+		if mapping.isMatchingOs() {
+			mappings = append(mappings, mapping)
+		}
+	}
+	sort.Slice(mappings, func(i, j int) bool {
+		return mappings[i].From < mappings[j].From
+	})
+
+	table := tabwriter.NewWriter(w, 0, 4, 1, ' ', 0)
+	fmt.Fprintln(table, "SOURCE\tDESTINATION\tTYPE")
+	cwd, _ := os.Getwd()
+	for _, mapping := range mappings {
+		from := strings.TrimPrefix(mapping.From, cwd+string(filepath.Separator))
+		fmt.Fprintf(table, "%s\t%s\t%s\n", collapseTilde(from), collapseTilde(mapping.To), mapping.As)
+	}
+	table.Flush()
 }
 
 func (dots Dots) rm() {
@@ -638,6 +663,10 @@ func main() {
 		rmCmd.Parse(os.Args[2:])
 		dots := readDotFile(flagDotFile)
 		dots.rm()
+	case "ls":
+		lsCmd.Parse(os.Args[2:])
+		dots := readDotFile(flagDotFile)
+		printMappings(os.Stdout, dots)
 	case "diff":
 		diffCmd.Parse(os.Args[2:])
 		dots := readDotFile(flagDotFile)
