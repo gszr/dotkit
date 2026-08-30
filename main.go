@@ -37,8 +37,9 @@ var (
 )
 
 var (
-	flagVerbose bool
-	flagDotFile string
+	flagVerbose          bool
+	flagDotFile          string
+	flagApplyDestination string
 )
 
 var (
@@ -47,6 +48,7 @@ var (
 	lsCmd       = flag.NewFlagSet("ls", flag.ExitOnError)
 	diffCmd     = flag.NewFlagSet("diff", flag.ExitOnError)
 	validateCmd = flag.NewFlagSet("validate", flag.ExitOnError)
+	applyCmd    = flag.NewFlagSet("apply", flag.ExitOnError)
 )
 
 func init() {
@@ -55,6 +57,7 @@ func init() {
 	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd, lsCmd, diffCmd, validateCmd} {
 		fs.StringVar(&flagDotFile, "f", "dotkit.yml", "the dots config file")
 	}
+	applyCmd.StringVar(&flagApplyDestination, "d", "", "clone destination")
 	for _, fs := range []*flag.FlagSet{syncCmd, rmCmd} {
 		fs.BoolVar(&flagVerbose, "verbose", false, "verbose output")
 	}
@@ -63,6 +66,7 @@ func init() {
 const usage = `Usage: dotkit <command> [flags]
 
 Commands:
+  apply      clone a dotfiles repository and apply it
   sync       sync dotfiles to their destinations
   rm         remove mapped dotfiles
   ls         list current mappings
@@ -343,6 +347,39 @@ func fetchGitResource(resource Resource) error {
 	})
 
 	return err
+}
+
+func defaultApplyDestination(repoURL string) string {
+	name := path.Base(strings.TrimSuffix(repoURL, "/"))
+	name = strings.TrimSuffix(name, ".git")
+	return filepath.Join(getHomeDir(), ".local", "share", "dotkit", "sources", name)
+}
+
+func acquireRepository(repoURL, destination string) error {
+	if !pathExists(destination) {
+		return fetchGitResource(Resource{Url: repoURL, To: destination, As: "git"})
+	}
+
+	repo, err := git.PlainOpen(destination)
+	if err != nil {
+		return fmt.Errorf("destination exists and is not a Git repository: %s", destination)
+	}
+	origin, err := repo.Remote("origin")
+	if err != nil {
+		return err
+	}
+	urls := origin.Config().URLs
+	if len(urls) == 0 || urls[0] != repoURL {
+		return fmt.Errorf("destination contains a different repository: %s", destination)
+	}
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+	if err := worktree.Pull(&git.PullOptions{RemoteName: "origin", Progress: os.Stdout}); err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return err
+	}
+	return nil
 }
 
 func fetchHttpResource(resource Resource) error {
@@ -648,6 +685,24 @@ func readDotFile(file string) Dots {
 	return newDots
 }
 
+func applyRepository(repoURL, destination string) {
+	if destination == "" {
+		destination = defaultApplyDestination(repoURL)
+	}
+	destination = expandTilde(destination)
+	absoluteDestination, err := filepath.Abs(destination)
+	if err != nil {
+		logger.Fatalf("invalid clone destination: %v", err)
+	}
+	if err := acquireRepository(repoURL, absoluteDestination); err != nil {
+		logger.Fatalf("error acquiring repository: %v", err)
+	}
+	if err := os.Chdir(absoluteDestination); err != nil {
+		logger.Fatalf("error entering repository: %v", err)
+	}
+	readDotFile("dotkit.yml").sync()
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Print(usage)
@@ -655,6 +710,12 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "apply":
+		applyCmd.Parse(os.Args[2:])
+		if applyCmd.NArg() != 1 {
+			logger.Fatal("usage: dotkit apply [-d destination] <repo-url>")
+		}
+		applyRepository(applyCmd.Arg(0), flagApplyDestination)
 	case "sync":
 		syncCmd.Parse(os.Args[2:])
 		dots := readDotFile(flagDotFile)
