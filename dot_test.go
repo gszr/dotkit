@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v3"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 )
 
 func isSymlink(path string) bool {
@@ -554,6 +559,37 @@ func TestEvalTemplate(t *testing.T) {
 	assert.Equal(t, "it works", res["t1"])
 	assert.Equal(t, "", res["t2"], "")
 	assert.Equal(t, "else", res["t3"])
+}
+
+func TestAcquireRepositoryClonesAndUpdates(t *testing.T) {
+	source := t.TempDir()
+	destination := filepath.Join(t.TempDir(), "dotfiles")
+	repo, err := git.PlainInit(source, false)
+	assert.NoError(t, err)
+	worktree, err := repo.Worktree()
+	assert.NoError(t, err)
+
+	commit := func(content string) {
+		assert.NoError(t, os.WriteFile(filepath.Join(source, "dotkit.yml"), []byte(content), 0644))
+		_, err = worktree.Add("dotkit.yml")
+		assert.NoError(t, err)
+		_, err = worktree.Commit("update", &git.CommitOptions{Author: &object.Signature{
+			Name: "dotkit", Email: "dotkit@example.com", When: time.Now(),
+		}})
+		assert.NoError(t, err)
+	}
+
+	commit("map: {}\n")
+	assert.NoError(t, acquireRepository(source, destination))
+	content, err := os.ReadFile(filepath.Join(destination, "dotkit.yml"))
+	assert.NoError(t, err)
+	assert.Equal(t, "map: {}\n", string(content))
+
+	commit("map: {}\nopt: {}\n")
+	assert.NoError(t, acquireRepository(source, destination))
+	content, err = os.ReadFile(filepath.Join(destination, "dotkit.yml"))
+	assert.NoError(t, err)
+	assert.Equal(t, "map: {}\nopt: {}\n", string(content))
 }
 
 func TestFetchGitResource(t *testing.T) {

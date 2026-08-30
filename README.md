@@ -59,6 +59,7 @@ and the Vim plugin gets cloned.
 dotkit <command> [flags]
 
 Commands:
+  apply      clone a dotfiles repository and apply it
   sync       sync dotfiles to their destinations
   rm         remove mapped dotfiles
   ls         list current mappings
@@ -68,8 +69,19 @@ Commands:
 
 Flags:
   -f string    config file (default "dotkit.yml")
+  -d string    clone destination (apply)
   -verbose     verbose output (sync, rm)
 ```
+
+### `dotkit apply`
+
+Clones a dotfiles repository and applies its `dotkit.yml`:
+
+```sh
+dotkit apply [-d <destination>] <repo-url>
+```
+
+Without `-d`, the repository is stored under `~/.local/share/dotkit/sources/`. Reapplying pulls the latest changes before syncing.
 
 ### `dotkit sync`
 
